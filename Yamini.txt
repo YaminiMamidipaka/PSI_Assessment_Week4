@@ -1,0 +1,111 @@
+agent1.sources =source1
+agent1.sinks = sink1
+agent1.channels = channel1
+
+agent1.sources.source1.channels = channel1
+agent1.sinks.sink1.channel = channel1
+
+agent1.sources.source1.type = org.apache.flume.source.twitter.TwitterSource
+agent1.sources.source1.consumerKey = iiKyikzYrxzrCQ5xdKMicrpY9
+agent1.sources.source1.consumerSecret = kF0MOvuGSe2eLJP79QqFGaoTrOGQFC0jRHXdCnprWO9t4FD9xQ
+agent1.sources.source1.accessToken = 1493966803009085442-f3PXFKEweDPLxu5HZOszDNxlteKLiV
+agent1.sources.source1.accessTokenSecret = Dfo2uMu7mZGX31JIzQs2br2T7G1PKShMxaN1pS5fVJ34i   
+agent1.sources.source1.keywords = covid-19
+
+agent1.sinks.sink1.type = hdfs
+agent1.sinks.sink1.hdfs.path = /flume/twitter
+agent1.sinks.sink1.hdfs.filePrefix = events
+agent1.sinks.sink1.hdfs.fileSuffix = .log
+agent1.sinks.sink1.hdfs.inUsePrefix = _
+agent1.sinks.sink1.hdfs.fileType = DataStream
+
+agent1.channels.channel1.type = memory
+agent1.channels.channel1.capacity = 1000
+
+--------------------------------------------------------------------------------------
+
+mysql -u root -p
+create database sqoopdemo;
+use sqoopdemo;
+create table pet(name varchar(20),birth DATE, sex char);
+INSERT INTO pet('Hamster','2020-01-16','M');
+
+sqoop import -connect jdbc:mysql://localhost:3306/sqoopdemo?useSSL=false --username=root --password=1234 --table=pet hive-import hive-table=pet --target-dir /mysql/table/pet -m 1
+
+--------------------------------------------------------------------------------------
+
+samplePath = "hdfs:///spark/rdd/sample.csv"
+sampleData = sc.textFile(samplePath)
+sampleData.first()
+sampleData.take(7)
+sampleData.collect()
+sampleData.count()
+
+--------------------------------------------------------------------------------------
+
+twitterPath = "hdfs:///spark/rdd/sample.json"
+import json
+twitterData = sc.textFile(twitterPath).map(lambda x:json.loads(x))
+twitterData.filter(lambda x:x['user']['screen_name']=='realDonaldTrump').map(lambda x:x['text']).take(10)
+from pyspark import SQLContext,Row
+sqlC = SQLContext(sc)
+twitterTable = sqlC.read.json(twitterPath)
+twitterTable.registerTempTable("twitterTab")
+sqlC.sql("select text,user.screen_name from twitterTab where user.screen_name='realDonaldTrump' limit 10").collect()
+
+--------------------------------------------------------------------------------------
+
+from pyspark import SparkContext
+from pyspark.streaming import StreamingContext
+
+sc = SparkContext("local[2]", "streamingErrorCount")
+ssc = StreamingContext(sc,10)
+
+ssc.checkpoint("hdfs:///spark/streaming")
+ds1 = ssc.socketTextStream("localhost",9999)
+count = ds1.flatMap(lambda x:x.split(" ")).filter(lambda word:"ERROR" in word).map(lambda word:(word,1)).reduceByKey(lambda x,y:x+y)
+
+count.pprint()
+ssc.start()
+ssc.awaitTermination()
+
+--------------------------------------------------------------------------------------
+
+flightsPath = "hdfs:///spark/rdd/flights.csv"
+flightsData = sc.textFile(flightsPath)
+blanktime = blanks.map(lambda x:x.replace(',""',',"0000"'))
+blanktime.take(717)
+finalF = blanktime
+finalF.take(242)
+from datetime import datetime
+from collections import namedtuple
+
+fields = ('date','airline','flightnum','origin','dest','dep','dep_delay','arv','arv_delay','airtime','distance')
+
+Flight = namedtuple('Flight',fields,verbose=False)
+DATE_FMT = '%Y-%m-%d'
+TIME_FMT = '%H%M%S'
+
+def parse(row):
+    row[0] = datetime.strptime(row[0], DATE_FMT).date()
+    row[5] = datetime.strptime(row[5], TIME_FMT).time()
+    row[6] = float(row[6])
+    row[7] = datetime.strptime(row[7], TIME_FMT).time()
+    row[8] = float(row[8])
+    row[9] = float(row[9])
+    row[10] = float(row[10])
+    return Flight(*row[:11])
+def notHeader(row):
+    return "AIRLINE_ID" not in row
+import csv
+from StringIO import StringIO
+def split(line):
+    reader = csv.reader(StringIO(line))
+    return reader.next()
+f = finalF.filter(notHeader).map(split)
+fp = f.map(parse)
+
+averageDelay = fp.filter(lambda x:x.dep_delay>0).count()/float(fp.count())
+print "The average delay is:" + averageDelay
+
+
